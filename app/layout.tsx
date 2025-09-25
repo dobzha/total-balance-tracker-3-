@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Poppins, Inter } from "next/font/google"
 import "./globals.css"
+import { AuthProvider } from "@/contexts/AuthContext"
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -31,7 +32,11 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${poppins.variable} ${inter.variable} dark`}>
       {/* Ensured font-poppins class is applied to body */}
-      <body className={`font-poppins antialiased ${poppins.className}`}>{children}</body>
+      <body className={`font-poppins antialiased ${poppins.className}`}>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </body>
     </html>
   )
 }

@@ -5,6 +5,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ChevronDown, Signal, Wifi, Battery, Loader2 } from "lucide-react"
 import { formatAmountInUSD } from "@/lib/exchange-rates"
+import { AuthComponent } from "./AuthComponent"
 
 interface HeaderProps {
   totalBalance: number
@@ -68,10 +69,13 @@ export default function Header({
       {/* Mobile status bar */}
       <div className="flex justify-between items-center mb-8 text-white">
         <span className="text-lg font-medium">9:41</span>
-        <div className="flex items-center gap-1">
-          <Signal className="w-4 h-4" />
-          <Wifi className="w-4 h-4" />
-          <Battery className="w-6 h-3" />
+        <div className="flex items-center gap-3">
+          <AuthComponent />
+          <div className="flex items-center gap-1">
+            <Signal className="w-4 h-4" />
+            <Wifi className="w-4 h-4" />
+            <Battery className="w-6 h-3" />
+          </div>
         </div>
       </div>
 
