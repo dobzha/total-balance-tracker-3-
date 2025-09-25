@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { ChevronDown, Signal, Wifi, Battery, Loader2 } from "lucide-react"
+import { ChevronDown, Loader2 } from "lucide-react"
 import { formatAmountInUSD } from "@/lib/exchange-rates"
 import { AuthComponent } from "./AuthComponent"
 
@@ -66,17 +66,9 @@ export default function Header({
 
   return (
     <div className="px-6 pt-4">
-      {/* Mobile status bar */}
-      <div className="flex justify-between items-center mb-8 text-white">
-        <span className="text-lg font-medium">9:41</span>
-        <div className="flex items-center gap-3">
-          <AuthComponent />
-          <div className="flex items-center gap-1">
-            <Signal className="w-4 h-4" />
-            <Wifi className="w-4 h-4" />
-            <Battery className="w-6 h-3" />
-          </div>
-        </div>
+      {/* Authentication section */}
+      <div className="flex justify-end items-center mb-8 text-white">
+        <AuthComponent />
       </div>
 
       <div className="flex justify-between items-start mb-6">
