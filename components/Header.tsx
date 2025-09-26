@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Image from "next/image"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ChevronDown, Loader2 } from "lucide-react"
@@ -66,8 +67,17 @@ export default function Header({
 
   return (
     <div className="px-6 pt-4">
-      {/* Authentication section */}
-      <div className="flex justify-end items-center mb-8 text-white">
+      {/* Header section with logo and authentication */}
+      <div className="flex justify-between items-center mb-8 text-white">
+        <div className="flex items-center">
+          <Image
+            src="/logo.svg"
+            alt="Logo"
+            width={24}
+            height={18}
+            className="w-6 h-[18px]"
+          />
+        </div>
         <AuthComponent />
       </div>
 
