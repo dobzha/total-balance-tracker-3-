@@ -9,12 +9,28 @@ import AddFinanceModal from "@/components/AddFinanceModal"
 import AddSubscriptionModal from "@/components/AddSubscriptionModal"
 import AddRevenueModal from "@/components/AddRevenueModal"
 import { convertToUSD } from "@/lib/exchange-rates"
+import { useAuth } from "@/contexts/AuthContext"
+import { 
+  financeItemsService, 
+  subscriptionItemsService, 
+  revenueItemsService, 
+  loadAllUserData 
+} from "@/lib/database"
 
-// Helper function to save data to localStorage
+// Helper function to save data to localStorage (fallback for non-authenticated users)
 const saveToLocalStorage = (key: string, data: any) => {
   if (typeof window !== 'undefined') {
     localStorage.setItem(key, JSON.stringify(data))
   }
+}
+
+// Helper function to load data from localStorage (fallback for non-authenticated users)
+const loadFromLocalStorage = (key: string) => {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem(key)
+    return stored ? JSON.parse(stored) : []
+  }
+  return []
 }
 
 export interface FinanceItem {
@@ -59,6 +75,7 @@ export interface Transaction {
 type Tab = "finance" | "subscriptions" | "revenue"
 
 export default function DashboardPage() {
+  const { user, loading: authLoading } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>("finance")
   const [financeItems, setFinanceItems] = useState<FinanceItem[]>([])
   const [subscriptionItems, setSubscriptionItems] = useState<SubscriptionItem[]>([])
@@ -66,12 +83,46 @@ export default function DashboardPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingItem, setEditingItem] = useState<FinanceItem | SubscriptionItem | RevenueItem | null>(null)
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [isLoadingData, setIsLoadingData] = useState(false)
 
   const [totalBalanceUSD, setTotalBalanceUSD] = useState(0)
   const [monthlySubscriptionsUSD, setMonthlySubscriptionsUSD] = useState(0)
   const [monthlyRevenueUSD, setMonthlyRevenueUSD] = useState(0)
   const [isLoadingBalances, setIsLoadingBalances] = useState(false)
   const [dateAwareFinanceItems, setDateAwareFinanceItems] = useState<FinanceItem[]>([])
+
+  // Load data when user authentication state changes
+  useEffect(() => {
+    const loadData = async () => {
+      if (authLoading) return // Wait for auth to finish loading
+      
+      setIsLoadingData(true)
+      try {
+        if (user) {
+          // User is authenticated, load from database
+          const data = await loadAllUserData()
+          setFinanceItems(data.financeItems)
+          setSubscriptionItems(data.subscriptionItems)
+          setRevenueItems(data.revenueItems)
+        } else {
+          // User is not authenticated, load from localStorage
+          setFinanceItems(loadFromLocalStorage('financeItems'))
+          setSubscriptionItems(loadFromLocalStorage('subscriptionItems'))
+          setRevenueItems(loadFromLocalStorage('revenueItems'))
+        }
+      } catch (error) {
+        console.error('Error loading data:', error)
+        // Fallback to localStorage on error
+        setFinanceItems(loadFromLocalStorage('financeItems'))
+        setSubscriptionItems(loadFromLocalStorage('subscriptionItems'))
+        setRevenueItems(loadFromLocalStorage('revenueItems'))
+      } finally {
+        setIsLoadingData(false)
+      }
+    }
+
+    loadData()
+  }, [user, authLoading])
 
   const generateAllTransactionsUpToDate = async (targetDate: Date): Promise<Transaction[]> => {
     const transactions: Transaction[] = []
@@ -274,55 +325,190 @@ export default function DashboardPage() {
   }
 
   const handleAddFinance = async (newItem: Omit<FinanceItem, "id"> | FinanceItem) => {
-    const id = "id" in newItem ? newItem.id : `finance-${Date.now()}`
-    
-    // Ensure we're using the exact amount entered by the user
-    const financeItem: FinanceItem = {
-      ...newItem,
-      id,
-      // Store the original amount without any modifications
-      amount: Number(newItem.amount)
+    try {
+      if ("id" in newItem) {
+        // Editing existing item
+        if (user) {
+          const updatedItem = await financeItemsService.update(newItem.id, {
+            name: newItem.name,
+            amount: Number(newItem.amount),
+            currency: newItem.currency
+          })
+          setFinanceItems(prev => prev.map(item => item.id === newItem.id ? updatedItem : item))
+        } else {
+          // Fallback to localStorage for non-authenticated users
+          const updatedItems = financeItems.map(item => item.id === newItem.id ? newItem : item)
+          setFinanceItems(updatedItems)
+          saveToLocalStorage("financeItems", updatedItems)
+        }
+      } else {
+        // Adding new item
+        if (user) {
+          const createdItem = await financeItemsService.create({
+            name: newItem.name,
+            amount: Number(newItem.amount),
+            currency: newItem.currency
+          })
+          setFinanceItems(prev => [...prev, createdItem])
+        } else {
+          // Fallback to localStorage for non-authenticated users
+          const financeItem: FinanceItem = {
+            ...newItem,
+            id: `finance-${Date.now()}`,
+            amount: Number(newItem.amount)
+          }
+          const updatedItems = [...financeItems, financeItem]
+          setFinanceItems(updatedItems)
+          saveToLocalStorage("financeItems", updatedItems)
+        }
+      }
+      setShowModal(false)
+      setEditingItem(null)
+    } catch (error) {
+      console.error('Error saving finance item:', error)
+      // Could add toast notification here
+    }
+  }
+
+  const handleAddSubscription = async (item: Omit<SubscriptionItem, "id"> | SubscriptionItem) => {
+    try {
+      if ("id" in item) {
+        // Editing existing item
+        if (user) {
+          const updatedItem = await subscriptionItemsService.update(item.id, item)
+          setSubscriptionItems(prev => prev.map(i => i.id === item.id ? updatedItem : i))
+        } else {
+          // Fallback to localStorage for non-authenticated users
+          const updatedItems = subscriptionItems.map(i => i.id === item.id ? item : i)
+          setSubscriptionItems(updatedItems)
+          saveToLocalStorage("subscriptionItems", updatedItems)
+        }
+      } else {
+        // Adding new item
+        if (user) {
+          const createdItem = await subscriptionItemsService.create(item)
+          setSubscriptionItems(prev => [...prev, createdItem])
+        } else {
+          // Fallback to localStorage for non-authenticated users
+          const newItem = { ...item, id: Date.now().toString() }
+          const updatedItems = [...subscriptionItems, newItem]
+          setSubscriptionItems(updatedItems)
+          saveToLocalStorage("subscriptionItems", updatedItems)
+        }
+      }
+      setShowModal(false)
+      setEditingItem(null)
+    } catch (error) {
+      console.error('Error saving subscription item:', error)
+    }
+  }
+
+  const handleAddRevenue = async (item: Omit<RevenueItem, "id"> | RevenueItem) => {
+    try {
+      if ("id" in item) {
+        // Editing existing item
+        if (user) {
+          const updatedItem = await revenueItemsService.update(item.id, item)
+          setRevenueItems(prev => prev.map(i => i.id === item.id ? updatedItem : i))
+        } else {
+          // Fallback to localStorage for non-authenticated users
+          const updatedItems = revenueItems.map(i => i.id === item.id ? item : i)
+          setRevenueItems(updatedItems)
+          saveToLocalStorage("revenueItems", updatedItems)
+        }
+      } else {
+        // Adding new item
+        if (user) {
+          const createdItem = await revenueItemsService.create(item)
+          setRevenueItems(prev => [...prev, createdItem])
+        } else {
+          // Fallback to localStorage for non-authenticated users
+          const newItem = { ...item, id: Date.now().toString() }
+          const updatedItems = [...revenueItems, newItem]
+          setRevenueItems(updatedItems)
+          saveToLocalStorage("revenueItems", updatedItems)
+        }
+      }
+      setShowModal(false)
+      setEditingItem(null)
+    } catch (error) {
+      console.error('Error saving revenue item:', error)
+    }
+  }
+
+  const handleEditFinance = async (item: Omit<FinanceItem, "id"> | FinanceItem) => {
+    // Ensure we have an id for editing
+    const fullItem = item as FinanceItem
+    if (!fullItem.id) {
+      console.error('Cannot edit item without id')
+      return
     }
 
-    // Update the finance items list
-    const updatedItems = "id" in newItem
-      ? financeItems.map(item => item.id === newItem.id ? financeItem : item)
-      : [...financeItems, financeItem]
-
-    setFinanceItems(updatedItems)
-    setShowModal(false)
-    setEditingItem(null)
-    saveToLocalStorage("financeItems", updatedItems)
+    try {
+      if (user) {
+        const updatedItem = await financeItemsService.update(fullItem.id, fullItem)
+        setFinanceItems(prev => prev.map(i => i.id === fullItem.id ? updatedItem : i))
+      } else {
+        // Fallback to localStorage for non-authenticated users
+        const updatedItems = financeItems.map(i => i.id === fullItem.id ? fullItem : i)
+        setFinanceItems(updatedItems)
+        saveToLocalStorage("financeItems", updatedItems)
+      }
+      setShowModal(false)
+      setEditingItem(null)
+    } catch (error) {
+      console.error('Error updating finance item:', error)
+    }
   }
 
-  const handleAddSubscription = (item: Omit<SubscriptionItem, "id">) => {
-    const newItem = { ...item, id: Date.now().toString() }
-    setSubscriptionItems((prev) => [...prev, newItem])
-    setShowModal(false)
+  const handleEditSubscription = async (item: Omit<SubscriptionItem, "id"> | SubscriptionItem) => {
+    // Ensure we have an id for editing
+    const fullItem = item as SubscriptionItem
+    if (!fullItem.id) {
+      console.error('Cannot edit item without id')
+      return
+    }
+
+    try {
+      if (user) {
+        const updatedItem = await subscriptionItemsService.update(fullItem.id, fullItem)
+        setSubscriptionItems(prev => prev.map(i => i.id === fullItem.id ? updatedItem : i))
+      } else {
+        // Fallback to localStorage for non-authenticated users
+        const updatedItems = subscriptionItems.map(i => i.id === fullItem.id ? fullItem : i)
+        setSubscriptionItems(updatedItems)
+        saveToLocalStorage("subscriptionItems", updatedItems)
+      }
+      setShowModal(false)
+      setEditingItem(null)
+    } catch (error) {
+      console.error('Error updating subscription item:', error)
+    }
   }
 
-  const handleAddRevenue = (item: Omit<RevenueItem, "id">) => {
-    const newItem = { ...item, id: Date.now().toString() }
-    setRevenueItems((prev) => [...prev, newItem])
-    setShowModal(false)
-  }
+  const handleEditRevenue = async (item: Omit<RevenueItem, "id"> | RevenueItem) => {
+    // Ensure we have an id for editing
+    const fullItem = item as RevenueItem
+    if (!fullItem.id) {
+      console.error('Cannot edit item without id')
+      return
+    }
 
-  const handleEditFinance = (item: FinanceItem) => {
-    setFinanceItems((prev) => prev.map((i) => (i.id === item.id ? item : i)))
-    setShowModal(false)
-    setEditingItem(null)
-  }
-
-  const handleEditSubscription = (item: SubscriptionItem) => {
-    setSubscriptionItems((prev) => prev.map((i) => (i.id === item.id ? item : i)))
-    setShowModal(false)
-    setEditingItem(null)
-  }
-
-  const handleEditRevenue = (item: RevenueItem) => {
-    setRevenueItems((prev) => prev.map((i) => (i.id === item.id ? item : i)))
-    setShowModal(false)
-    setEditingItem(null)
+    try {
+      if (user) {
+        const updatedItem = await revenueItemsService.update(fullItem.id, fullItem)
+        setRevenueItems(prev => prev.map(i => i.id === fullItem.id ? updatedItem : i))
+      } else {
+        // Fallback to localStorage for non-authenticated users
+        const updatedItems = revenueItems.map(i => i.id === fullItem.id ? fullItem : i)
+        setRevenueItems(updatedItems)
+        saveToLocalStorage("revenueItems", updatedItems)
+      }
+      setShowModal(false)
+      setEditingItem(null)
+    } catch (error) {
+      console.error('Error updating revenue item:', error)
+    }
   }
 
   const handleItemClick = (item: FinanceItem | SubscriptionItem | RevenueItem) => {
@@ -372,16 +558,61 @@ export default function DashboardPage() {
     }
   }
 
-  const handleDeleteFinance = (id: string) => {
-    setFinanceItems((prev) => prev.filter((item) => item.id !== id))
+  const handleDeleteFinance = async (id: string) => {
+    if (user) {
+      try {
+        await financeItemsService.delete(id)
+        setFinanceItems((prev) => prev.filter((item) => item.id !== id))
+      } catch (error) {
+        console.error('Error deleting finance item:', error)
+        // Fallback to localStorage
+        const updatedItems = financeItems.filter((item) => item.id !== id)
+        setFinanceItems(updatedItems)
+        saveToLocalStorage("financeItems", updatedItems)
+      }
+    } else {
+      const updatedItems = financeItems.filter((item) => item.id !== id)
+      setFinanceItems(updatedItems)
+      saveToLocalStorage("financeItems", updatedItems)
+    }
   }
 
-  const handleDeleteSubscription = (id: string) => {
-    setSubscriptionItems((prev) => prev.filter((item) => item.id !== id))
+  const handleDeleteSubscription = async (id: string) => {
+    if (user) {
+      try {
+        await subscriptionItemsService.delete(id)
+        setSubscriptionItems((prev) => prev.filter((item) => item.id !== id))
+      } catch (error) {
+        console.error('Error deleting subscription item:', error)
+        // Fallback to localStorage
+        const updatedItems = subscriptionItems.filter((item) => item.id !== id)
+        setSubscriptionItems(updatedItems)
+        saveToLocalStorage("subscriptionItems", updatedItems)
+      }
+    } else {
+      const updatedItems = subscriptionItems.filter((item) => item.id !== id)
+      setSubscriptionItems(updatedItems)
+      saveToLocalStorage("subscriptionItems", updatedItems)
+    }
   }
 
-  const handleDeleteRevenue = (id: string) => {
-    setRevenueItems((prev) => prev.filter((item) => item.id !== id))
+  const handleDeleteRevenue = async (id: string) => {
+    if (user) {
+      try {
+        await revenueItemsService.delete(id)
+        setRevenueItems((prev) => prev.filter((item) => item.id !== id))
+      } catch (error) {
+        console.error('Error deleting revenue item:', error)
+        // Fallback to localStorage
+        const updatedItems = revenueItems.filter((item) => item.id !== id)
+        setRevenueItems(updatedItems)
+        saveToLocalStorage("revenueItems", updatedItems)
+      }
+    } else {
+      const updatedItems = revenueItems.filter((item) => item.id !== id)
+      setRevenueItems(updatedItems)
+      saveToLocalStorage("revenueItems", updatedItems)
+    }
   }
 
   const getTransactionHistory = async (startDate: Date, endDate: Date): Promise<Transaction[]> => {
